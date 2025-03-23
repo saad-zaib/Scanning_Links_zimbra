@@ -31,6 +31,7 @@ class CybersiloChecker:
         }
 
         try:
+            logging.info(f"Checking IP: {ip} against Cybersilo")
             response = requests.post(
                 self.base_url,
                 headers=headers,
@@ -40,26 +41,34 @@ class CybersiloChecker:
             if response.status_code == 200:
                 # Process the response
                 api_result = response.json()
-                
+                logging.info(f"Cybersilo raw response: {api_result}")
+
                 # Transform to a consistent format
                 result = {
                     "data": api_result.get("data", []),
                     "isMalicious": False,
                     "highestScore": 0
                 }
-                
+
                 # Check if any entry has a score > 10
                 for item in result["data"]:
                     score = item.get("x_opencti_score", 0)
+                    logging.info(f"Found score: {score} for item: {item.get('name', 'unknown')}")
                     if score > result["highestScore"]:
                         result["highestScore"] = score
-                    
+
                     if score > 10:
+                        logging.info(f"Marking IP as malicious with score: {score}")
                         result["isMalicious"] = True
-                
+
+                logging.info(f"Final result for {ip}: isMalicious={result['isMalicious']}, highestScore={result['highestScore']}")
                 self.cache[ip] = (result, datetime.now())
                 return result
             else:
-                return {"error": f"API Error: {response.status_code}", "message": response.text}
+                error_msg = {"error": f"API Error: {response.status_code}", "message": response.text}
+                logging.error(f"Cybersilo API error: {error_msg}")
+                return error_msg
         except Exception as e:
-            return {"error": f"Request failed: {str(e)}"}
+            error_msg = {"error": f"Request failed: {str(e)}"}
+            logging.error(f"Exception in check_ip: {error_msg}")
+            return error_msg
