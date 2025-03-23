@@ -51,12 +51,23 @@ class JSONLogger:
             email_info['sender_host'] = results.get('sender_host', '')
             email_info['sender_ip'] = results.get('sender_ip', '')
             
-            # Add abuse reports
-            if 'sender_abuse_report' in results and not isinstance(results['sender_abuse_report'], str):
-                abuse_report = results['sender_abuse_report']
-                email_info['sender_abuse_score'] = abuse_report.get('abuseConfidenceScore', 0)
-                email_info['sender_abuse_reports'] = abuse_report.get('totalReports', 0)
-                email_info['sender_last_reported'] = abuse_report.get('lastReportedAt', '')
+            # Add threat reports
+            if 'sender_threat_report' in results and isinstance(results['sender_threat_report'], dict):
+                threat_report = results['sender_threat_report']
+                email_info['sender_is_malicious'] = threat_report.get('isMalicious', False)
+                email_info['sender_threat_score'] = threat_report.get('highestScore', 0)
+                
+                if 'data' in threat_report and threat_report['data']:
+                    email_info['sender_threats'] = []
+                    for item in threat_report['data']:
+                        threat_info = {
+                            'name': item.get('name', ''),
+                            'description': item.get('description', ''),
+                            'score': item.get('x_opencti_score', 0),
+                            'valid_from': item.get('valid_from', ''),
+                            'created_by': item.get('createdBy', {}).get('name', '')
+                        }
+                        email_info['sender_threats'].append(threat_info)
             
             # Add suspicious findings
             if results.get('is_suspicious'):
@@ -72,10 +83,22 @@ class JSONLogger:
                         'ip': url_info.get('ip', '')
                     }
                     
-                    if 'abuse_report' in url_info and not isinstance(url_info['abuse_report'], str):
-                        abuse_report = url_info['abuse_report']
-                        url_data['abuse_score'] = abuse_report.get('abuseConfidenceScore', 0)
-                        url_data['abuse_reports'] = abuse_report.get('totalReports', 0)
+                    if 'threat_report' in url_info and isinstance(url_info['threat_report'], dict):
+                        threat_report = url_info['threat_report']
+                        url_data['is_malicious'] = threat_report.get('isMalicious', False)
+                        url_data['threat_score'] = threat_report.get('highestScore', 0)
+                        
+                        if 'data' in threat_report and threat_report['data']:
+                            url_data['threats'] = []
+                            for item in threat_report['data']:
+                                threat_info = {
+                                    'name': item.get('name', ''),
+                                    'description': item.get('description', ''),
+                                    'score': item.get('x_opencti_score', 0),
+                                    'valid_from': item.get('valid_from', ''),
+                                    'created_by': item.get('createdBy', {}).get('name', '')
+                                }
+                                url_data['threats'].append(threat_info)
                     
                     email_info['urls'].append(url_data)
             

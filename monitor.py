@@ -9,9 +9,9 @@ from zimbra_tagger import ZimbraEmailTagger
 from json_logger import JSONLogger
 
 class ZimbraMonitor(FileSystemEventHandler):
-    def __init__(self, zimbra_store_path: str, abuseipdb_api_key: str, tag_name="MALICIOUS", json_log_path="/var/log/scanning.json"):
+    def __init__(self, zimbra_store_path: str, cybersilo_api_key: str, tag_name="MALICIOUS", json_log_path="/var/log/scanning.json"):
         self.zimbra_store_path = zimbra_store_path
-        self.analyzer = EmailAnalyzer(abuseipdb_api_key)
+        self.analyzer = EmailAnalyzer(cybersilo_api_key)
         self.tagger = ZimbraEmailTagger(tag_name)
         self.json_logger = JSONLogger(json_log_path)
         self.processed_paths: Set[str] = set()
@@ -74,12 +74,26 @@ class ZimbraMonitor(FileSystemEventHandler):
         if not results.get('is_ip_sender') and results.get('sender_ip'):
             logging.info(f"Resolved IP: {results['sender_ip']}")
 
-        # Display AbuseIPDB results for sender
-        if results.get('sender_ip') and 'error' not in results.get('sender_abuse_report', {}):
-            abuse_report = results['sender_abuse_report']
-            logging.info(f"Sender IP Abuse Score: {abuse_report.get('abuseConfidenceScore', 'N/A')}%")
-            logging.info(f"Total Reports: {abuse_report.get('totalReports', 'N/A')}")
-            logging.info(f"Last Reported: {abuse_report.get('lastReportedAt', 'Never')}")
+        # Display Cybersilo results for sender
+        if results.get('sender_ip') and 'error' not in results.get('sender_threat_report', {}):
+            threat_report = results['sender_threat_report']
+            is_malicious = threat_report.get('isMalicious', False)
+            score = threat_report.get('highestScore', 0)
+            
+            malicious_status = "🚨 MALICIOUS" if is_malicious else "CLEAN"
+            logging.info(f"Sender IP Threat Status: {malicious_status} (Score: {score})")
+            
+            if 'data' in threat_report and threat_report['data']:
+                logging.info("Threat Intelligence Matches:")
+                for item in threat_report['data']:
+                    name = item.get('name', 'Unknown')
+                    desc = item.get('description', 'No description')
+                    score = item.get('x_opencti_score', 0)
+                    source = item.get('createdBy', {}).get('name', 'Unknown Source')
+                    
+                    logging.info(f"  - {name} (Score: {score}, Source: {source})")
+                    if desc:
+                        logging.info(f"    Description: {desc}")
 
         # Display URL information
         if results.get('urls'):
@@ -93,12 +107,26 @@ class ZimbraMonitor(FileSystemEventHandler):
                 if not url_info.get('is_ip_host') and url_info.get('ip'):
                     logging.info(f"    Resolved IP: {url_info['ip']}")
 
-                # Display AbuseIPDB results
-                if url_info.get('ip') and 'error' not in url_info.get('abuse_report', {}):
-                    abuse_report = url_info['abuse_report']
-                    logging.info(f"    IP Abuse Score: {abuse_report.get('abuseConfidenceScore', 'N/A')}%")
-                    logging.info(f"    Total Reports: {abuse_report.get('totalReports', 'N/A')}")
-                    logging.info(f"    Last Reported: {abuse_report.get('lastReportedAt', 'Never')}")
+                # Display Cybersilo results
+                if url_info.get('ip') and 'error' not in url_info.get('threat_report', {}):
+                    threat_report = url_info['threat_report']
+                    is_malicious = threat_report.get('isMalicious', False)
+                    score = threat_report.get('highestScore', 0)
+                    
+                    malicious_status = "🚨 MALICIOUS" if is_malicious else "CLEAN"
+                    logging.info(f"    IP Threat Status: {malicious_status} (Score: {score})")
+                    
+                    if 'data' in threat_report and threat_report['data']:
+                        logging.info("    Threat Intelligence Matches:")
+                        for item in threat_report['data']:
+                            name = item.get('name', 'Unknown')
+                            desc = item.get('description', 'No description')
+                            score = item.get('x_opencti_score', 0)
+                            source = item.get('createdBy', {}).get('name', 'Unknown Source')
+                            
+                            logging.info(f"      - {name} (Score: {score}, Source: {source})")
+                            if desc:
+                                logging.info(f"        Description: {desc}")
 
     def scan_existing_files(self):
         """Scan existing email files in the store."""

@@ -6,12 +6,11 @@ from typing import Set, Dict, Optional, Tuple
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
-
-from abuse_checker import AbuseIPDBChecker
+from abuse_checker import CybersiloChecker
 from domain_resolver import DomainResolver
 
 class EmailAnalyzer:
-    def __init__(self, abuseipdb_api_key: str):
+    def __init__(self, cybersilo_api_key: str):
         self.url_pattern = re.compile(
             r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
         )
@@ -21,7 +20,7 @@ class EmailAnalyzer:
         self.processed_hashes: Set[str] = set()
         self.domain_resolver = DomainResolver()
         self.executor = ThreadPoolExecutor(max_workers=5)
-        self.abuse_checker = AbuseIPDBChecker(abuseipdb_api_key)
+        self.cybersilo_checker = CybersiloChecker(cybersilo_api_key)
 
     def get_file_hash(self, filepath: str) -> str:
         """Generate a hash of file content to prevent redundant processing."""
@@ -115,10 +114,10 @@ class EmailAnalyzer:
             logging.error(f"Error parsing URL {url}: {str(e)}")
             return url, None
 
-    def check_ip_abuse(self, ip: Optional[str]) -> Dict:
-        """Check IP for abuse reports if it exists."""
+    def check_ip_threat(self, ip: Optional[str]) -> Dict:
+        """Check IP for threats using Cybersilo if it exists."""
         if ip:
-            return self.abuse_checker.check_ip(ip)
+            return self.cybersilo_checker.check_ip(ip)
         return {"error": "No IP available"}
 
     def is_suspicious(self, results: Dict) -> Tuple[bool, list]:
@@ -141,35 +140,30 @@ class EmailAnalyzer:
         if sender_email and return_path_email and sender_email != return_path_email:
             suspicious_findings.append(f"Sender email ({sender_email}) does not match return path ({return_path_email})")
 
-        # Check sender IP
+        # Check sender IP using Cybersilo
         if results.get('sender_ip'):
-            abuse_report = results.get('sender_abuse_report', {})
-            if not isinstance(abuse_report, dict):
-                abuse_report = {}
-
-            # Convert to int before comparison
-            abuse_score = int(abuse_report.get('abuseConfidenceScore', 0))
-            total_reports = int(abuse_report.get('totalReports', 0))
-
-            if abuse_score > 0:
-                suspicious_findings.append(f"Sender IP has abuse score of {abuse_score}%")
-
-            if total_reports > 0:
-                suspicious_findings.append(f"Sender IP has {total_reports} abuse reports")
+            threat_report = results.get('sender_threat_report', {})
+            if isinstance(threat_report, dict):
+                if threat_report.get('isMalicious'):
+                    score = threat_report.get('highestScore', 0)
+                    suspicious_findings.append(f"Sender IP is marked as malicious with score {score}")
+                
+                if 'data' in threat_report and threat_report['data']:
+                    for item in threat_report['data']:
+                        suspicious_findings.append(f"Sender IP matches threat intel: {item.get('name', 'Unknown threat')}")
 
         # Check URLs
         for url_info in results.get('urls', []):
             if url_info.get('ip'):
-                abuse_report = url_info.get('abuse_report', {})
-                if isinstance(abuse_report, dict):
-                    # Convert to int before comparison
-                    abuse_score = int(abuse_report.get('abuseConfidenceScore', 0))
-                    total_reports = int(abuse_report.get('totalReports', 0))
-
-                    if abuse_score > 0:
-                        suspicious_findings.append(f"URL IP has abuse score of {abuse_score}%")
-                    if total_reports > 0:
-                        suspicious_findings.append(f"URL IP has {total_reports} abuse reports")
+                threat_report = url_info.get('threat_report', {})
+                if isinstance(threat_report, dict):
+                    if threat_report.get('isMalicious'):
+                        score = threat_report.get('highestScore', 0)
+                        suspicious_findings.append(f"URL IP is marked as malicious with score {score}")
+                    
+                    if 'data' in threat_report and threat_report['data']:
+                        for item in threat_report['data']:
+                            suspicious_findings.append(f"URL IP matches threat intel: {item.get('name', 'Unknown threat')}")
 
         return len(suspicious_findings) > 0, suspicious_findings
 
@@ -193,7 +187,7 @@ class EmailAnalyzer:
             from_header = msg.get('From', '')
             sender_email = self.extract_email_from_header(from_header)
             sender_host, sender_ip = self.extract_sender_info(from_header)
-            sender_abuse_report = self.check_ip_abuse(sender_ip)
+            sender_threat_report = self.check_ip_threat(sender_ip)
             
             # Extract receiver information
             to_header = msg.get('To', '')
@@ -215,14 +209,14 @@ class EmailAnalyzer:
                     urls = self.extract_urls(content)
                     for url in urls:
                         host, ip = self.parse_url_host_and_ip(url)
-                        abuse_report = self.check_ip_abuse(ip)
+                        threat_report = self.check_ip_threat(ip)
 
                         urls_info.append({
                             'url': url,
                             'host': host,
                             'is_ip_host': host == ip,
                             'ip': ip,
-                            'abuse_report': abuse_report
+                            'threat_report': threat_report
                         })
 
             results = {
@@ -230,7 +224,7 @@ class EmailAnalyzer:
                 'sender_host': sender_host,
                 'is_ip_sender': sender_host == sender_ip,
                 'sender_ip': sender_ip,
-                'sender_abuse_report': sender_abuse_report,
+                'sender_threat_report': sender_threat_report,
                 'receiver_email': receiver_email,
                 'return_path': return_path_header,
                 'return_path_email': return_path_email,

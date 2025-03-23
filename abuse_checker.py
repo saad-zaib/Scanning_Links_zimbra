@@ -3,15 +3,15 @@ import logging
 from typing import Dict, Tuple
 from datetime import datetime
 
-class AbuseIPDBChecker:
+class CybersiloChecker:
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.base_url = "https://api.abuseipdb.com/api/v2"
+        self.base_url = "https://tip.cybersilo.tech/api/ioc/search"
         self.cache: Dict[str, Tuple[dict, datetime]] = {}
         self.cache_duration = 3600  # Cache results for 1 hour
 
     def check_ip(self, ip: str) -> Dict:
-        """Check IP against AbuseIPDB with caching."""
+        """Check IP against Cybersilo with caching."""
         if not ip:
             return {"error": "No IP provided"}
 
@@ -22,27 +22,44 @@ class AbuseIPDBChecker:
                 return result
 
         headers = {
-            'Accept': 'application/json',
-            'Key': self.api_key
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
         }
 
-        params = {
-            'ipAddress': ip,
-            'maxAgeInDays': 90
+        data = {
+            "pattern": ip
         }
 
         try:
-            response = requests.get(
-                f"{self.base_url}/check",
+            response = requests.post(
+                self.base_url,
                 headers=headers,
-                params=params
+                json=data
             )
 
             if response.status_code == 200:
-                result = response.json()['data']
+                # Process the response
+                api_result = response.json()
+                
+                # Transform to a consistent format
+                result = {
+                    "data": api_result.get("data", []),
+                    "isMalicious": False,
+                    "highestScore": 0
+                }
+                
+                # Check if any entry has a score > 10
+                for item in result["data"]:
+                    score = item.get("x_opencti_score", 0)
+                    if score > result["highestScore"]:
+                        result["highestScore"] = score
+                    
+                    if score > 10:
+                        result["isMalicious"] = True
+                
                 self.cache[ip] = (result, datetime.now())
                 return result
             else:
-                return {"error": f"API Error: {response.status_code}"}
+                return {"error": f"API Error: {response.status_code}", "message": response.text}
         except Exception as e:
             return {"error": f"Request failed: {str(e)}"}

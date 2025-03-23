@@ -9,7 +9,7 @@ from monitor import ZimbraMonitor
 def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(description='Monitor Zimbra email store for malicious content and tag suspicious emails.')
-    parser.add_argument('--abuseipdb-key', required=True, help='AbuseIPDB API key')
+    parser.add_argument('--cybersilo-key', default='qEdS1VyVJIYnjBgPOa7hX5VawCPqO1Y6',required=True, help='Cybersilo API Bearer token')
     parser.add_argument('--store-path', default='/opt/zimbra/store/', 
                        help='Path to Zimbra store directory (default: /opt/zimbra/store/)')
     parser.add_argument('--log-file', default='zimbra_malicious_monitor.log',
@@ -37,7 +37,7 @@ def main():
     )
 
     # Create the event handler and observer
-    event_handler = ZimbraMonitor(args.store_path, args.abuseipdb_api_key, args.tag_name, args.json_log)
+    event_handler = ZimbraMonitor(args.store_path, args.cybersilo_key, args.tag_name, args.json_log)
     
     try:
         logging.info("Scanning existing email files...")
